@@ -36,7 +36,7 @@ pub fn addCliTests(b: *std.Build, exercises: []const Exercise) *Step {
                 b.graph.zig_exe,
                 "build",
                 "-Dhealed",
-                b.fmt("-Dhealed-path={s}", .{tmp_path.src_path.sub_path}),
+                b.fmt("-Dhealed-path={s}", .{tmp_path}),
                 b.fmt("-Dn={}", .{n}),
             });
             cmd.setName(b.fmt("zig build -Dhealed -Dn={}", .{n}));
@@ -50,7 +50,7 @@ pub fn addCliTests(b: *std.Build, exercises: []const Exercise) *Step {
             case_step.dependOn(&verify.step);
         }
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .src_path = .{ .owner = b, .sub_path = tmp_path } });
         cleanup.step.dependOn(case_step);
 
         step.dependOn(&cleanup.step);
@@ -72,7 +72,7 @@ pub fn addCliTests(b: *std.Build, exercises: []const Exercise) *Step {
             b.graph.zig_exe,
             "build",
             "-Dhealed",
-            b.fmt("-Dhealed-path={s}", .{tmp_path.src_path.sub_path}),
+            b.fmt("-Dhealed-path={s}", .{tmp_path}),
         });
         cmd.setName("zig build -Dhealed");
         cmd.expectExitCode(0);
@@ -82,7 +82,7 @@ pub fn addCliTests(b: *std.Build, exercises: []const Exercise) *Step {
         const verify = CheckStep.create(b, exercises, stderr);
         verify.step.dependOn(&cmd.step);
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .src_path = .{ .owner = b, .sub_path = tmp_path } });
         cleanup.step.dependOn(&verify.step);
 
         step.dependOn(&cleanup.step);
@@ -150,7 +150,7 @@ const CheckNamedStep = struct {
         return self;
     }
 
-    fn make(step: *Step, _: std.Progress.Node) !void {
+    fn make(step: *Step, _: Step.MakeOptions) !void {
         const b = step.owner;
         const self: *CheckNamedStep = @alignCast(@fieldParentPtr("step", step));
         const ex = self.exercise;
@@ -202,7 +202,7 @@ const CheckStep = struct {
         return self;
     }
 
-    fn make(step: *Step, _: std.Progress.Node) !void {
+    fn make(step: *Step, _: Step.MakeOptions) !void {
         const b = step.owner;
         const self: *CheckStep = @alignCast(@fieldParentPtr("step", step));
         const exercises = self.exercises;
@@ -325,7 +325,7 @@ const FailStep = struct {
         return self;
     }
 
-    fn make(step: *Step, _: std.Progress.Node) !void {
+    fn make(step: *Step, _: Step.MakeOptions) !void {
         const b = step.owner;
         const self: *FailStep = @alignCast(@fieldParentPtr("step", step));
 
@@ -352,7 +352,7 @@ const HealStep = struct {
     exercises: []const Exercise,
     work_path: []const u8,
 
-    pub fn create(owner: *Build, exercises: []const Exercise, work_path: LazyPath) *HealStep {
+    pub fn create(owner: *Build, exercises: []const Exercise, work_path: []const u8) *HealStep {
         const self = owner.allocator.create(HealStep) catch @panic("OOM");
         self.* = .{
             .step = Step.init(.{
@@ -362,13 +362,13 @@ const HealStep = struct {
                 .makeFn = make,
             }),
             .exercises = exercises,
-            .work_path = work_path.src_path.sub_path,
+            .work_path = work_path,
         };
 
         return self;
     }
 
-    fn make(step: *Step, _: std.Progress.Node) !void {
+    fn make(step: *Step, _: Step.MakeOptions) !void {
         const b = step.owner;
         const self: *HealStep = @alignCast(@fieldParentPtr("step", step));
 
@@ -403,17 +403,12 @@ fn heal(allocator: Allocator, exercises: []const Exercise, work_path: []const u8
 
 /// This function is the same as the one in std.Build.makeTempPath, with the
 /// difference that returns an error when the temp path cannot be created.
-pub fn makeTempPath(b: *Build) !LazyPath {
+pub fn makeTempPath(b: *Build) ![]const u8 {
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ Build.hex64(rand_int);
     const path = b.cache_root.join(b.allocator, &.{tmp_dir_sub_path}) catch
         @panic("OOM");
     try b.cache_root.handle.makePath(tmp_dir_sub_path);
 
-    return LazyPath{
-        .src_path = .{
-            .owner = b,
-            .sub_path = path,
-        },
-    };
+    return path;
 }
